@@ -1,8 +1,8 @@
 # PhotoGallery
 
-PhotoGallery is a Swift-based iOS application designed to display a curated gallery of photos. It features a modern, clean SwiftUI interface, a custom animated splash transition, and a robust Core Data setup for local data persistence.
+PhotoGallery is a Swift-based iOS application designed to display a curated gallery of photos. It features a modern, clean SwiftUI interface, a custom animated splash transition, and a robust offline-first Core Data setup for local data persistence.
 
-Currently, the project is structured with a premium, brand-aligned design system and an active networking layer that fetches photos asynchronously from a REST API.
+The project implements a complete synchronization architecture between a REST API and a local SQLite database, allowing the app to run completely offline.
 
 ---
 
@@ -16,42 +16,53 @@ A significant focus has been placed on creating a premium user experience from t
 
 ---
 
-## 📡 Networking & API Sync
+## 💾 Core Data & Persistence Layer
 
-The networking layer is implemented using modern Swift concurrency (`async/await`) and is designed to fetch, decode, and transform remote photo resources:
+The app uses Core Data for offline storage and state persistence, utilizing a SQLite database:
 
-### 1. Data Model (`PhotoDTO.swift`)
-*   Defines the `PhotoDTO` struct mapping JSON payloads from JSONPlaceholder.
-*   Conforms to `Decodable`, `Identifiable`, and `Sendable` to support Swift's modern structured concurrency rules safely.
+### 1. Database Schema (`PhotoGallery.xcdatamodeld`)
+*   Defines the `Photo` managed object entity.
+*   Attributes: `id` (Integer 64), `albumId` (Integer 64), `title` (String), `url` (String), and `thumbnailUrl` (String).
 
-### 2. API Service (`PhotoAPIService.swift`)
-*   Governed by the `PhotoAPIServiceProtocol` to facilitate dependency injection and mock-based testing.
-*   Constructs paginated request URLs using query parameters (`_page` and `_limit`).
-*   Processes requests asynchronously using `URLSession`.
-*   Includes granular error states (`PhotoAPIError`) that map to user-friendly messages for invalid URLs, empty payloads, server status codes, underlying network failures, and JSON decoding issues.
+### 2. Stack Setup (`Persistence.swift`)
+*   **Conflict Resolution**: Configured with `NSMergeByPropertyObjectTrumpMergePolicy` so that newly fetched API data overrides old data without duplicating records.
+*   **UI Merging**: Automatically merges changes made on background contexts directly into the main thread view context.
+*   **Startup Failure Handling**: If the database fails to initialize (e.g. disk corruption), the app lifecycle gracefully catches the error and displays a structured system error screen.
 
-### 3. Image URL Adaptation (`RemotePhotoListView.swift`)
-*   Bypasses the slow and often unreliable `via.placeholder.com` service by dynamically rewriting image URLs to point to `placehold.co` while maintaining the identical dimensions, colors, and layout requested by the API.
+---
+
+## 📡 Synchronization Repository Pattern
+
+Data coordination is governed by `PhotoRepository.swift` under the `PhotoRepositoryProtocol` contract:
+
+*   **Offline-First Strategy**: When the user scrolls, the app queries the local Core Data database first. It only calls the network API if the user scrolls past the boundaries of locally cached pages.
+*   **Background Upserting**: New network pages are saved asynchronously on a private background context. This prevents UI stuttering while parsing and persisting large batches of photo records.
+*   **Pagination Progress (`UserDefaults`)**: Progress is tracked using dynamic, store-scoped keys in `UserDefaults` to avoid re-fetching pages from the API when the app is relaunched.
+*   **Duplicate Prevention**: Network items are matched against existing records by `id` using an `IN` predicate block. This allows the repository to run bulk "upserts" (inserting new records and updating existing titles if they haven't been modified locally).
+*   **Atomic Batch Deletion**: Supports removing individual photos or bulk-deleting multiple items. If one item in a deletion batch is missing, the operation rolls back to guarantee database consistency.
 
 ---
 
 ## 🛠️ Project Architecture
 
-The app follows the **MVVM** design pattern:
+The app follows the **MVVM-R** (Model-View-ViewModel-Repository) design pattern:
 
 ```
 Views (SwiftUI) 
   ├── ViewModels (ObservableObject)
-  │     └── Services (PhotoAPIService)
-  └── Models (PhotoDTO)
+  │     └── Repository (PhotoRepository)
+  │           ├── Local Database (Core Data)
+  │           └── Remote API Service (PhotoAPIService)
+  └── Models (PhotoRowModel / PhotoDTO)
 ```
 
 | Component | Responsibility |
 | :--- | :--- |
-| **Views** | Renders UI components, controls transitions, and binds user inputs (`ContentView`, `RemotePhotoListView`, `SplashScreenView`, `EmptyStateView`). |
-| **ViewModels** | Manages view state, orchestrates async data fetches, and handles loading and error states (`RemotePhotoListViewModel`). |
+| **Views** | SwiftUI rows, lists, and empty screens (`ContentView`, `PhotoListView`, `PhotoRowView`, `SplashScreenView`, `EmptyStateView`). |
+| **ViewModels** | Manages UI list states, pagination triggers, error mappings, and deletion confirmations (`PhotoListViewModel`). |
+| **Repository** | Coordinates CRUD operations between local Core Data cache and remote network calls (`PhotoRepository`). |
 | **Services** | Performs network operations, validates HTTP responses, and handles JSON decoding (`PhotoAPIService`). |
-| **Models** | Defines types for API response data transfer (`PhotoDTO`). |
+| **Models** | Immutable structures mapped to views (`PhotoRowModel`) and API entities (`PhotoDTO`). |
 
 ---
 
@@ -60,37 +71,44 @@ Views (SwiftUI)
 ```
 PhotoGallery/
 ├── PhotoGallery/
-│   ├── PhotoGalleryApp.swift            # Application entry point
+│   ├── PhotoGalleryApp.swift            # Application entry point & Core Data integration
 │   ├── ContentView.swift                 # Main view coordinator and splash flow controller
 │   ├── AppConstants.swift                # App-wide static configurations, endpoints, and copy
-│   ├── Persistence.swift                 # Core Data persistence container setup
+│   ├── Persistence.swift                 # Core Data container setup and context helpers
+│   ├── PhotoGallery.xcdatamodeld         # Core Data model definitions
 │   ├── Assets.xcassets                   # UI assets (AccentColor, AppIcon, placeholders)
 │   ├── Models/
-│   │   └── PhotoDTO.swift                # Decodable photo model
+│   │   ├── PhotoDTO.swift                # Decodable API model
+│   │   └── PhotoRowModel.swift           # Immutable view-layer photo model
 │   ├── Services/
-│   │   └── PhotoAPIService.swift         # REST API Service using URLSession
+│   │   ├── PhotoAPIService.swift         # REST API Service using URLSession
+│   │   └── PhotoRepository.swift         # Synchronization repository (Core Data + API)
 │   ├── ViewModels/
-│   │   └── RemotePhotoListViewModel.swift # Remote photo list manager
+│   │   └── PhotoListViewModel.swift      # Main list view model
 │   └── Views/
 │       ├── AppTheme.swift                # Gradients, cards, shadows, and vector app logo
 │       ├── SplashScreenView.swift        # Animated splash screen view
 │       ├── EmptyStateView.swift          # Custom empty and error state display
-│       └── RemotePhotoListView.swift     # Paginated list showing online photos
+│       ├── PhotoListView.swift           # Infinite-scrolling SwiftUI photo list
+│       ├── PhotoRowView.swift            # Row view using Kingfisher for image caching
+│       └── PhotoPlaceholder.swift        # Fallback image provider
 └── PhotoGalleryTests/
-    └── PhotoAPIServiceTests.swift        # Unit tests covering networking and error flows
+    ├── PhotoAPIServiceTests.swift        # Network service tests
+    └── PhotoRepositoryTests.swift        # Repository integration tests (CRUD & pagination)
 ```
 
 ---
 
 ## 🧪 Unit Testing
 
-The networking layer is fully tested to ensure stability and reliability under various API responses:
+The repository and networking layers are fully tested under local in-memory databases and mocked API response providers:
 
-*   **Mock Networking Protocol (`MockURLProtocol` inside `PhotoAPIServiceTests.swift`)**: Intercepts outgoing requests using native Foundation `URLProtocol` configuration to mock server states without making real HTTP requests.
-*   **Verification Coverage**:
-    *   `testFetchPhotosDecodesSuccessfulResponse`: Verifies correct URL query construction and successful JSON parsing.
-    *   `testFetchPhotosThrowsServerErrorForNonSuccessfulStatus`: Ensures 5xx status codes are handled.
-    *   `testFetchPhotosThrowsEmptyResponseForEmptySuccessfulBody`: Validates behavior when the API responds with empty data.
+*   **`PhotoRepositoryTests.swift`**:
+    *   `testFetchUpdateAndDeletePhoto`: Assures that fetching, title editing, and deletion operations work correctly.
+    *   `testUpsertPreventsDuplicatePhotoIDs`: Verifies that unique constraints are respected during synchronization.
+    *   `testFetchNextPageAdvancesPagination`: Validates that pagination counts advance correctly.
+    *   `testFetchNextPageContinuesAfterAllLocalRowsAreDeleted`: Verifies that pagination index doesn't reset or duplicate when local items are cleared.
+    *   `testBatchDeleteIsAtomicWhenAnyPhotoIsMissing`: Tests transactional safety in bulk deletions.
 
 ---
 
@@ -113,6 +131,5 @@ The networking layer is fully tested to ensure stability and reliability under v
 
 ## 🚀 Roadmap / Next Steps
 
-1. **Core Data Entity**: Define a local database schema mapping the fetched photo attributes.
-2. **Local Sync Repository**: Build a synchronization repository that manages both offline Core Data storage and online REST API calls (displaying cached local data first, then fetching the next page only when scrolling past local limits).
-3. **Local Actions (Edit & Delete)**: Allow users to edit photo titles locally and delete photos, reflecting these updates immediately in the scrolling feed.
+1. **Detail View**: Build `PhotoDetailView` to showcase the full-size image, show detailed photo parameters (album/photo indexes), and host actions to edit the title and delete the photo.
+2. **Detail ViewModel**: Build `PhotoDetailViewModel` to process edits, interact with the repository, and bubble up data changes to refresh the parent list view.
