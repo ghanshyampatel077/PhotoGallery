@@ -35,12 +35,12 @@ struct PersistenceController {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
         for index in 1...5 {
-//            let photo = Photo(context: viewContext)
-//            photo.id = Int64(index)
-//            photo.albumId = AppConstants.PreviewData.albumID
-//            photo.title = AppConstants.PreviewData.title(index: index)
-//            photo.url = AppConstants.PreviewData.imageURL
-//            photo.thumbnailUrl = AppConstants.PreviewData.thumbnailURL
+            let photo = Photo(context: viewContext)
+            photo.id = Int64(index)
+            photo.albumId = AppConstants.PreviewData.albumID
+            photo.title = AppConstants.PreviewData.title(index: index)
+            photo.url = AppConstants.PreviewData.imageURL
+            photo.thumbnailUrl = AppConstants.PreviewData.thumbnailURL
         }
         do {
             try viewContext.save()

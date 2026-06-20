@@ -1,8 +1,24 @@
 # PhotoGallery
 
-PhotoGallery is a Swift-based iOS application designed to display a curated gallery of photos. It features a modern, clean SwiftUI interface, a custom animated splash transition, and a robust Core Data setup for local data persistence.
+PhotoGallery is a Swift-based iOS application designed to display a curated gallery of photos. It features a modern, clean SwiftUI interface, a custom animated splash transition, and a robust offline-first Core Data setup for local data persistence.
 
-Currently, the project is structured with a premium, brand-aligned design system and foundation. Here is a breakdown of what has been implemented so far.
+The project implements a complete synchronization architecture between a REST API and a local SQLite database, allowing the app to run completely offline, fetch paginated data on demand, and perform local title updates and deletions with transactional safety.
+
+---
+
+## 📸 Screenshots
+
+Here is a visual walkthrough of the application:
+
+<p align="center">
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829833.png" width="19%" alt="Splash Screen" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829827.png" width="19%" alt="Main Feed" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829825.png" width="19%" alt="Swipe to Delete" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829838.png" width="19%" alt="Detail View" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829812.png" width="19%" alt="Delete Confirmation" />
+</p>
+
+*From left to right: (1) Animated Splash Screen, (2) Infinite-Scrolling Feed, (3) Swipe-to-Delete Action, (4) Photo Details & Edit Title Screen, (5) Deletion Confirmation Alert.*
 
 ---
 
@@ -16,28 +32,64 @@ A significant focus has been placed on creating a premium user experience from t
 
 ---
 
-## 🛠️ Project Architecture & Foundation
+## 💾 Core Data & Persistence Layer
 
-The codebase is organized cleanly to enforce separation of concerns:
+The app uses Core Data for offline storage and state persistence, utilizing a SQLite database:
 
-### 1. Centralized Configuration (`AppConstants.swift`)
-To prevent magic numbers and hardcoded strings, all configurations are grouped in a `nonisolated enum AppConstants` which includes:
-*   **Animations**: Precise durations for transitions and splash timings.
-*   **API**: Endpoints for photo synchronization (targeting JSONPlaceholder).
-*   **Core Data**: Constants for entity names, local predicate formatting, and memory store paths.
-*   **UI Copy**: Reusable localized text for menus, screens, alerts, and placeholders.
-*   **Image Handling**: Configuration for placeholders and URL-rewriters.
+### 1. Database Schema (`PhotoGallery.xcdatamodeld`)
+*   Defines the `Photo` managed object entity.
+*   Attributes: `id` (Integer 64), `albumId` (Integer 64), `title` (String), `url` (String), and `thumbnailUrl` (String).
 
-### 2. Core Data Layer (`Persistence.swift`)
-A pre-configured Core Data container setup supporting:
-*   **View Context Merging**: Automatically merges changes from parent contexts to keep the main thread updated.
-*   **NSMergePolicy**: Configured to resolve write conflicts gracefully (`NSMergeByPropertyObjectTrumpMergePolicy`).
-*   **Background Contexts**: A helper to spawn independent contexts for processing background operations (like API downloads) without blocking the UI.
-*   **Custom Errors**: Mapping Core Data failures to human-readable localized errors.
+### 2. Stack Setup (`Persistence.swift`)
+*   **Conflict Resolution**: Configured with `NSMergeByPropertyObjectTrumpMergePolicy` so that newly fetched API data overrides old data without duplicating records.
+*   **UI Merging**: Automatically merges changes made on background contexts directly into the main thread view context.
+*   **Startup Failure Handling**: If the database fails to initialize (e.g. disk corruption), the app lifecycle gracefully catches the error and displays a structured system error screen.
 
-### 3. Views & Layout
-*   **`ContentView.swift`**: Controls the transition between the splash screen and the main application container. It uses a `ZStack` and coordinate transitions to fade out the splash screen after its minimum duration.
-*   **`EmptyStateView.swift`**: A reusable view containing the custom brand logo, descriptive titles/messages, and support for a CTA button (like a "Retry" action).
+---
+
+## 📡 Synchronization Repository Pattern
+
+Data coordination is governed by `PhotoRepository.swift` under the `PhotoRepositoryProtocol` contract:
+
+*   **Offline-First Strategy**: When the user scrolls, the app queries the local Core Data database first. It only calls the network API if the user scrolls past the boundaries of locally cached pages.
+*   **Background Upserting**: New network pages are saved asynchronously on a private background context. This prevents UI stuttering while parsing and persisting large batches of photo records.
+*   **Pagination Progress (`UserDefaults`)**: Progress is tracked using dynamic, store-scoped keys in `UserDefaults` to avoid re-fetching pages from the API when the app is relaunched.
+*   **Duplicate Prevention**: Network items are matched against existing records by `id` using an `IN` predicate block. This allows the repository to run bulk "upserts" (inserting new records and updating existing titles if they haven't been modified locally).
+*   **Atomic Batch Deletion**: Supports removing individual photos or bulk-deleting multiple items. If one item in a deletion batch is missing, the operation rolls back to guarantee database consistency.
+
+---
+
+## 🔍 Detail Screen & Title Editing
+
+The detail view provides a workspace to view, edit, and manage individual photo objects:
+
+*   **Interactive Zooming (`ZoomablePhotoView.swift`)**: Tapping the image opens a dedicated full-screen view where users can zoom and inspect details with pinch gestures.
+*   **Caching & Asynchronous Loading**: Powered by Kingfisher (`KFImage`) to load and cache full-sized remote images and thumbnails.
+*   **Local Title Editing**: Users can edit photo titles, which are trimmed and persisted to Core Data. Edits are immediately bubbled up to refresh the main feed.
+*   **Double-Confirmation Alerts**: Both detail screen deletions and list swipe-to-delete triggers require confirmation using a standardized modal popup before permanently removing the record.
+
+---
+
+## 🛠️ Project Architecture
+
+The app follows the **MVVM-R** (Model-View-ViewModel-Repository) design pattern:
+
+```
+Views (SwiftUI) 
+  ├── ViewModels (ObservableObject / Observation)
+  │     └── Repository (PhotoRepository)
+  │           ├── Local Database (Core Data)
+  │           └── Remote API Service (PhotoAPIService)
+  └── Models (PhotoRowModel / PhotoDTO)
+```
+
+| Component | Responsibility |
+| :--- | :--- |
+| **Views** | SwiftUI detail screens, lists, row structures, and empty states (`ContentView`, `PhotoListView`, `PhotoDetailView`, `PhotoRowView`, `SplashScreenView`, `EmptyStateView`, `ZoomablePhotoView`). |
+| **ViewModels** | Manages UI list states, pagination triggers, error mappings, validation, and detail updates (`PhotoListViewModel`, `PhotoDetailViewModel`). |
+| **Repository** | Coordinates CRUD operations between local Core Data cache and remote network calls (`PhotoRepository`). |
+| **Services** | Performs network operations, validates HTTP responses, and handles JSON decoding (`PhotoAPIService`). |
+| **Models** | Immutable structures mapped to views (`PhotoRowModel`) and API entities (`PhotoDTO`). |
 
 ---
 
@@ -46,17 +98,45 @@ A pre-configured Core Data container setup supporting:
 ```
 PhotoGallery/
 ├── PhotoGallery/
-│   ├── PhotoGalleryApp.swift      # Application entry point
-│   ├── ContentView.swift           # Main view coordinator and navigation shell
-│   ├── AppConstants.swift          # App-wide static configuration and UI text
-│   ├── Persistence.swift           # Core Data container setup and context helpers
-│   ├── Assets.xcassets             # Assets (AppIcon, photo placeholder, etc.)
+│   ├── PhotoGalleryApp.swift            # Application entry point & Core Data integration
+│   ├── ContentView.swift                 # Main view coordinator and splash flow controller
+│   ├── AppConstants.swift                # App-wide static configurations, endpoints, and copy
+│   ├── Persistence.swift                 # Core Data container setup and context helpers
+│   ├── PhotoGallery.xcdatamodeld         # Core Data model definitions
+│   ├── Assets.xcassets                   # UI assets (AccentColor, AppIcon, placeholders)
+│   ├── Models/
+│   │   ├── PhotoDTO.swift                # Decodable API model
+│   │   └── PhotoRowModel.swift           # Immutable view-layer photo model
+│   ├── Services/
+│   │   ├── PhotoAPIService.swift         # REST API Service using URLSession
+│   │   └── PhotoRepository.swift         # Synchronization repository (Core Data + API)
+│   ├── ViewModels/
+│   │   ├── PhotoListViewModel.swift      # Main list view model
+│   │   └── PhotoDetailViewModel.swift    # Photo detail view model
 │   └── Views/
-│       ├── AppTheme.swift          # Custom theme gradients, shadow, and vector logomark
-│       ├── SplashScreenView.swift  # Animated launch screen
-│       └── EmptyStateView.swift    # Reusable state view for empty/error screens
-└── PhotoGallery.xcodeproj          # Xcode Project file (configured with synchronized groups)
+│       ├── AppTheme.swift                # Gradients, cards, shadows, and vector app logo
+│       ├── SplashScreenView.swift        # Animated splash screen view
+│       ├── EmptyStateView.swift          # Custom empty and error state display
+│       ├── PhotoListView.swift           # Infinite-scrolling SwiftUI photo list
+│       ├── PhotoRowView.swift            # Row view using Kingfisher for image caching
+│       ├── PhotoDetailView.swift         # Detail view with title editing and delete actions
+│       ├── ZoomablePhotoView.swift       # Pinch-to-zoom interactive photo overlay
+│       └── PhotoPlaceholder.swift        # Fallback image provider
+└── PhotoGalleryTests/
+    ├── PhotoAPIServiceTests.swift        # Network service tests
+    ├── PhotoRepositoryTests.swift        # Repository integration tests (CRUD & pagination)
+    └── PhotoViewModelTests.swift         # ViewModel validation tests
 ```
+
+---
+
+## 🧪 Unit Testing
+
+The repository, networking, and view-model layers are fully tested under local in-memory databases and mocked API response providers:
+
+*   **`PhotoRepositoryTests.swift`**: Verifies basic database CRUD, duplicate prevention (upserts), pagination advancement, and transactional batch deletion.
+*   **`PhotoViewModelTests.swift`**: Assures that view-model states update correctly upon edits, and that delete confirmation alerts behave as expected during swipes.
+*   **`PhotoAPIServiceTests.swift`**: Verifies query constructions, empty payloads, parsing, and non-200 HTTP responses.
 
 ---
 
@@ -72,14 +152,5 @@ PhotoGallery/
 3. Select your target simulator (e.g., iPhone 15 or newer).
 4. Run the project using `Command + R` (⌘R).
 
-No API keys, custom credentials, or complex setup tasks are required. The project references dependencies (like Kingfisher and IQKeyboardManager) via Swift Package Manager (SPM), which Xcode resolves automatically on launch.
-
----
-
-## 🚀 Roadmap / Next Steps
-
-1. **Core Data Entity**: Set up the `.xcdatamodeld` file defining the `Photo` entity (with attributes like `id`, `albumId`, `title`, `url`, and `thumbnailUrl`).
-2. **Networking API Service**: Add `PhotoAPIService` to perform paginated network requests to the JSONPlaceholder photos endpoint.
-3. **Repository Pattern**: Build a synchronization repository that checks the Core Data cache first, then fetches pages from the API when scrolling past cached records.
-4. **Photo List View**: Replace the empty state in `ContentView` with a paginated, infinite-scrolling list of photos.
-5. **Detail & Editing Screen**: Implement a detail view allowing full-size image viewing, editing the photo's title locally, and deleting a record.
+### Running the Tests
+*   Press `Command + U` (⌘U) in Xcode to execute the unit test suite.
