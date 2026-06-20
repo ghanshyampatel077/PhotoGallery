@@ -1,4 +1,4 @@
-internal import CoreData
+import CoreData
 import Foundation
 
 // MARK: - Repository Contract
@@ -162,47 +162,40 @@ final class PhotoRepository: PhotoRepositoryProtocol {
     }
 
     private func upsertPhotos(_ dtos: [PhotoDTO]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let context = persistence.newBackgroundContext()
-            context.perform {
-                do {
-                    let dtoIDs = dtos.map { Int64($0.id) }
-                    let request = Photo.fetchRequest()
-                    request.predicate = NSPredicate(format: AppConstants.CoreData.photoIDInPredicate, dtoIDs)
+        let context = persistence.newBackgroundContext()
+        try await context.perform {
+            let dtoIDs = dtos.map { Int64($0.id) }
+            let request = Photo.fetchRequest()
+            request.predicate = NSPredicate(format: AppConstants.CoreData.photoIDInPredicate, dtoIDs)
 
-                    let existingPhotos = try context.fetch(request)
-                    var photosByID = Dictionary(uniqueKeysWithValues: existingPhotos.map { ($0.id, $0) })
+            let existingPhotos = try context.fetch(request)
+            var photosByID = Dictionary(uniqueKeysWithValues: existingPhotos.map { ($0.id, $0) })
 
-                    for dto in dtos {
-                        let dtoID = Int64(dto.id)
-                        let existingPhoto = photosByID[dtoID]
-                        let photo = existingPhoto ?? Photo(context: context)
-                        photo.id = Int64(dto.id)
-                        photo.albumId = Int64(dto.albumId)
-                        photo.url = Self.displayImageURL(
-                            from: dto.url,
-                            fallbackSize: AppConstants.ImageURL.displayImageSize,
-                            photoID: dto.id
-                        )
-                        photo.thumbnailUrl = Self.displayImageURL(
-                            from: dto.thumbnailUrl,
-                            fallbackSize: AppConstants.ImageURL.thumbnailImageSize,
-                            photoID: dto.id
-                        )
+            for dto in dtos {
+                let dtoID = Int64(dto.id)
+                let existingPhoto = photosByID[dtoID]
+                let photo = existingPhoto ?? Photo(context: context)
+                photo.id = Int64(dto.id)
+                photo.albumId = Int64(dto.albumId)
+                photo.url = Self.displayImageURL(
+                    from: dto.url,
+                    fallbackSize: AppConstants.ImageURL.displayImageSize,
+                    photoID: dto.id
+                )
+                photo.thumbnailUrl = Self.displayImageURL(
+                    from: dto.thumbnailUrl,
+                    fallbackSize: AppConstants.ImageURL.thumbnailImageSize,
+                    photoID: dto.id
+                )
 
-                        if existingPhoto == nil || photo.title?.isEmpty != false {
-                            photo.title = dto.title
-                        }
-
-                        photosByID[dtoID] = photo
-                    }
-
-                    try self.persistence.save(context: context)
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+                if existingPhoto == nil || photo.title?.isEmpty != false {
+                    photo.title = dto.title
                 }
+
+                photosByID[dtoID] = photo
             }
+
+            try self.persistence.save(context: context)
         }
     }
 

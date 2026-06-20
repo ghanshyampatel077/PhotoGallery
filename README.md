@@ -2,7 +2,23 @@
 
 PhotoGallery is a Swift-based iOS application designed to display a curated gallery of photos. It features a modern, clean SwiftUI interface, a custom animated splash transition, and a robust offline-first Core Data setup for local data persistence.
 
-The project implements a complete synchronization architecture between a REST API and a local SQLite database, allowing the app to run completely offline.
+The project implements a complete synchronization architecture between a REST API and a local SQLite database, allowing the app to run completely offline, fetch paginated data on demand, and perform local title updates and deletions with transactional safety.
+
+---
+
+## 📸 Screenshots
+
+Here is a visual walkthrough of the application:
+
+<p align="center">
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829833.png" width="19%" alt="Splash Screen" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829827.png" width="19%" alt="Main Feed" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829825.png" width="19%" alt="Swipe to Delete" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829838.png" width="19%" alt="Detail View" />
+  <img src="/Users/ghanshyampatel/.gemini/antigravity/brain/a946c4e0-3100-40d8-9a50-bfa50478112d/media__1781967829812.png" width="19%" alt="Delete Confirmation" />
+</p>
+
+*From left to right: (1) Animated Splash Screen, (2) Infinite-Scrolling Feed, (3) Swipe-to-Delete Action, (4) Photo Details & Edit Title Screen, (5) Deletion Confirmation Alert.*
 
 ---
 
@@ -43,13 +59,24 @@ Data coordination is governed by `PhotoRepository.swift` under the `PhotoReposit
 
 ---
 
+## 🔍 Detail Screen & Title Editing
+
+The detail view provides a workspace to view, edit, and manage individual photo objects:
+
+*   **Interactive Zooming (`ZoomablePhotoView.swift`)**: Tapping the image opens a dedicated full-screen view where users can zoom and inspect details with pinch gestures.
+*   **Caching & Asynchronous Loading**: Powered by Kingfisher (`KFImage`) to load and cache full-sized remote images and thumbnails.
+*   **Local Title Editing**: Users can edit photo titles, which are trimmed and persisted to Core Data. Edits are immediately bubbled up to refresh the main feed.
+*   **Double-Confirmation Alerts**: Both detail screen deletions and list swipe-to-delete triggers require confirmation using a standardized modal popup before permanently removing the record.
+
+---
+
 ## 🛠️ Project Architecture
 
 The app follows the **MVVM-R** (Model-View-ViewModel-Repository) design pattern:
 
 ```
 Views (SwiftUI) 
-  ├── ViewModels (ObservableObject)
+  ├── ViewModels (ObservableObject / Observation)
   │     └── Repository (PhotoRepository)
   │           ├── Local Database (Core Data)
   │           └── Remote API Service (PhotoAPIService)
@@ -58,8 +85,8 @@ Views (SwiftUI)
 
 | Component | Responsibility |
 | :--- | :--- |
-| **Views** | SwiftUI rows, lists, and empty screens (`ContentView`, `PhotoListView`, `PhotoRowView`, `SplashScreenView`, `EmptyStateView`). |
-| **ViewModels** | Manages UI list states, pagination triggers, error mappings, and deletion confirmations (`PhotoListViewModel`). |
+| **Views** | SwiftUI detail screens, lists, row structures, and empty states (`ContentView`, `PhotoListView`, `PhotoDetailView`, `PhotoRowView`, `SplashScreenView`, `EmptyStateView`, `ZoomablePhotoView`). |
+| **ViewModels** | Manages UI list states, pagination triggers, error mappings, validation, and detail updates (`PhotoListViewModel`, `PhotoDetailViewModel`). |
 | **Repository** | Coordinates CRUD operations between local Core Data cache and remote network calls (`PhotoRepository`). |
 | **Services** | Performs network operations, validates HTTP responses, and handles JSON decoding (`PhotoAPIService`). |
 | **Models** | Immutable structures mapped to views (`PhotoRowModel`) and API entities (`PhotoDTO`). |
@@ -84,31 +111,32 @@ PhotoGallery/
 │   │   ├── PhotoAPIService.swift         # REST API Service using URLSession
 │   │   └── PhotoRepository.swift         # Synchronization repository (Core Data + API)
 │   ├── ViewModels/
-│   │   └── PhotoListViewModel.swift      # Main list view model
+│   │   ├── PhotoListViewModel.swift      # Main list view model
+│   │   └── PhotoDetailViewModel.swift    # Photo detail view model
 │   └── Views/
 │       ├── AppTheme.swift                # Gradients, cards, shadows, and vector app logo
 │       ├── SplashScreenView.swift        # Animated splash screen view
 │       ├── EmptyStateView.swift          # Custom empty and error state display
 │       ├── PhotoListView.swift           # Infinite-scrolling SwiftUI photo list
 │       ├── PhotoRowView.swift            # Row view using Kingfisher for image caching
+│       ├── PhotoDetailView.swift         # Detail view with title editing and delete actions
+│       ├── ZoomablePhotoView.swift       # Pinch-to-zoom interactive photo overlay
 │       └── PhotoPlaceholder.swift        # Fallback image provider
 └── PhotoGalleryTests/
     ├── PhotoAPIServiceTests.swift        # Network service tests
-    └── PhotoRepositoryTests.swift        # Repository integration tests (CRUD & pagination)
+    ├── PhotoRepositoryTests.swift        # Repository integration tests (CRUD & pagination)
+    └── PhotoViewModelTests.swift         # ViewModel validation tests
 ```
 
 ---
 
 ## 🧪 Unit Testing
 
-The repository and networking layers are fully tested under local in-memory databases and mocked API response providers:
+The repository, networking, and view-model layers are fully tested under local in-memory databases and mocked API response providers:
 
-*   **`PhotoRepositoryTests.swift`**:
-    *   `testFetchUpdateAndDeletePhoto`: Assures that fetching, title editing, and deletion operations work correctly.
-    *   `testUpsertPreventsDuplicatePhotoIDs`: Verifies that unique constraints are respected during synchronization.
-    *   `testFetchNextPageAdvancesPagination`: Validates that pagination counts advance correctly.
-    *   `testFetchNextPageContinuesAfterAllLocalRowsAreDeleted`: Verifies that pagination index doesn't reset or duplicate when local items are cleared.
-    *   `testBatchDeleteIsAtomicWhenAnyPhotoIsMissing`: Tests transactional safety in bulk deletions.
+*   **`PhotoRepositoryTests.swift`**: Verifies basic database CRUD, duplicate prevention (upserts), pagination advancement, and transactional batch deletion.
+*   **`PhotoViewModelTests.swift`**: Assures that view-model states update correctly upon edits, and that delete confirmation alerts behave as expected during swipes.
+*   **`PhotoAPIServiceTests.swift`**: Verifies query constructions, empty payloads, parsing, and non-200 HTTP responses.
 
 ---
 
@@ -126,10 +154,3 @@ The repository and networking layers are fully tested under local in-memory data
 
 ### Running the Tests
 *   Press `Command + U` (⌘U) in Xcode to execute the unit test suite.
-
----
-
-## 🚀 Roadmap / Next Steps
-
-1. **Detail View**: Build `PhotoDetailView` to showcase the full-size image, show detailed photo parameters (album/photo indexes), and host actions to edit the title and delete the photo.
-2. **Detail ViewModel**: Build `PhotoDetailViewModel` to process edits, interact with the repository, and bubble up data changes to refresh the parent list view.

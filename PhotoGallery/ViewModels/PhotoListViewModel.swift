@@ -1,17 +1,18 @@
-import Combine
-internal import CoreData
+import CoreData
 import Foundation
+import Observation
 
 @MainActor
-final class PhotoListViewModel: ObservableObject {
+@Observable
+final class PhotoListViewModel {
     
     // MARK: State
-    @Published private(set) var photos: [PhotoRowModel] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var isLoadingMore = false
-    @Published var errorMessage: String?
-    @Published var showDeleteConfirmation = false
-    @Published var photoToDelete: PhotoRowModel?
+    private(set) var photos: [PhotoRowModel] = []
+    private(set) var isLoading = false
+    private(set) var isLoadingMore = false
+    var errorMessage: String?
+    var showDeleteConfirmation = false
+    var photoToDelete: PhotoRowModel?
 
     private let repository: PhotoRepositoryProtocol
     private var hasMorePages = true
@@ -74,24 +75,8 @@ final class PhotoListViewModel: ObservableObject {
     }
 
     func deletePhotos(at offsets: IndexSet) {
-        let photosToDelete = offsets.compactMap { index in
-            photos.indices.contains(index) ? photos[index] : nil
-        }
-
-        guard !photosToDelete.isEmpty else { return }
-
-        do {
-            try repository.deletePhotos(ids: photosToDelete.map(\.photoID))
-            let deletedObjectIDs = Set(photosToDelete.map(\.objectID))
-            let deletedPhotoIDs = Set(photosToDelete.map(\.photoID))
-            photos.removeAll { deletedObjectIDs.contains($0.objectID) || deletedPhotoIDs.contains($0.photoID) }
-            removeInvalidPhotos()
-        } catch {
-            errorMessage = error.localizedDescription
-            Task {
-                await loadInitial(forceReload: true)
-            }
-        }
+        guard let index = offsets.first, photos.indices.contains(index) else { return }
+        confirmDelete(photos[index])
     }
 
     func performDelete() {
