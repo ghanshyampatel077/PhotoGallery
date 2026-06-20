@@ -2,7 +2,7 @@
 
 PhotoGallery is a Swift-based iOS application designed to display a curated gallery of photos. It features a modern, clean SwiftUI interface, a custom animated splash transition, and a robust Core Data setup for local data persistence.
 
-Currently, the project is structured with a premium, brand-aligned design system and foundation. Here is a breakdown of what has been implemented so far.
+Currently, the project is structured with a premium, brand-aligned design system and an active networking layer that fetches photos asynchronously from a REST API.
 
 ---
 
@@ -16,28 +16,42 @@ A significant focus has been placed on creating a premium user experience from t
 
 ---
 
-## 🛠️ Project Architecture & Foundation
+## 📡 Networking & API Sync
 
-The codebase is organized cleanly to enforce separation of concerns:
+The networking layer is implemented using modern Swift concurrency (`async/await`) and is designed to fetch, decode, and transform remote photo resources:
 
-### 1. Centralized Configuration (`AppConstants.swift`)
-To prevent magic numbers and hardcoded strings, all configurations are grouped in a `nonisolated enum AppConstants` which includes:
-*   **Animations**: Precise durations for transitions and splash timings.
-*   **API**: Endpoints for photo synchronization (targeting JSONPlaceholder).
-*   **Core Data**: Constants for entity names, local predicate formatting, and memory store paths.
-*   **UI Copy**: Reusable localized text for menus, screens, alerts, and placeholders.
-*   **Image Handling**: Configuration for placeholders and URL-rewriters.
+### 1. Data Model (`PhotoDTO.swift`)
+*   Defines the `PhotoDTO` struct mapping JSON payloads from JSONPlaceholder.
+*   Conforms to `Decodable`, `Identifiable`, and `Sendable` to support Swift's modern structured concurrency rules safely.
 
-### 2. Core Data Layer (`Persistence.swift`)
-A pre-configured Core Data container setup supporting:
-*   **View Context Merging**: Automatically merges changes from parent contexts to keep the main thread updated.
-*   **NSMergePolicy**: Configured to resolve write conflicts gracefully (`NSMergeByPropertyObjectTrumpMergePolicy`).
-*   **Background Contexts**: A helper to spawn independent contexts for processing background operations (like API downloads) without blocking the UI.
-*   **Custom Errors**: Mapping Core Data failures to human-readable localized errors.
+### 2. API Service (`PhotoAPIService.swift`)
+*   Governed by the `PhotoAPIServiceProtocol` to facilitate dependency injection and mock-based testing.
+*   Constructs paginated request URLs using query parameters (`_page` and `_limit`).
+*   Processes requests asynchronously using `URLSession`.
+*   Includes granular error states (`PhotoAPIError`) that map to user-friendly messages for invalid URLs, empty payloads, server status codes, underlying network failures, and JSON decoding issues.
 
-### 3. Views & Layout
-*   **`ContentView.swift`**: Controls the transition between the splash screen and the main application container. It uses a `ZStack` and coordinate transitions to fade out the splash screen after its minimum duration.
-*   **`EmptyStateView.swift`**: A reusable view containing the custom brand logo, descriptive titles/messages, and support for a CTA button (like a "Retry" action).
+### 3. Image URL Adaptation (`RemotePhotoListView.swift`)
+*   Bypasses the slow and often unreliable `via.placeholder.com` service by dynamically rewriting image URLs to point to `placehold.co` while maintaining the identical dimensions, colors, and layout requested by the API.
+
+---
+
+## 🛠️ Project Architecture
+
+The app follows the **MVVM** design pattern:
+
+```
+Views (SwiftUI) 
+  ├── ViewModels (ObservableObject)
+  │     └── Services (PhotoAPIService)
+  └── Models (PhotoDTO)
+```
+
+| Component | Responsibility |
+| :--- | :--- |
+| **Views** | Renders UI components, controls transitions, and binds user inputs (`ContentView`, `RemotePhotoListView`, `SplashScreenView`, `EmptyStateView`). |
+| **ViewModels** | Manages view state, orchestrates async data fetches, and handles loading and error states (`RemotePhotoListViewModel`). |
+| **Services** | Performs network operations, validates HTTP responses, and handles JSON decoding (`PhotoAPIService`). |
+| **Models** | Defines types for API response data transfer (`PhotoDTO`). |
 
 ---
 
@@ -46,17 +60,37 @@ A pre-configured Core Data container setup supporting:
 ```
 PhotoGallery/
 ├── PhotoGallery/
-│   ├── PhotoGalleryApp.swift      # Application entry point
-│   ├── ContentView.swift           # Main view coordinator and navigation shell
-│   ├── AppConstants.swift          # App-wide static configuration and UI text
-│   ├── Persistence.swift           # Core Data container setup and context helpers
-│   ├── Assets.xcassets             # Assets (AppIcon, photo placeholder, etc.)
+│   ├── PhotoGalleryApp.swift            # Application entry point
+│   ├── ContentView.swift                 # Main view coordinator and splash flow controller
+│   ├── AppConstants.swift                # App-wide static configurations, endpoints, and copy
+│   ├── Persistence.swift                 # Core Data persistence container setup
+│   ├── Assets.xcassets                   # UI assets (AccentColor, AppIcon, placeholders)
+│   ├── Models/
+│   │   └── PhotoDTO.swift                # Decodable photo model
+│   ├── Services/
+│   │   └── PhotoAPIService.swift         # REST API Service using URLSession
+│   ├── ViewModels/
+│   │   └── RemotePhotoListViewModel.swift # Remote photo list manager
 │   └── Views/
-│       ├── AppTheme.swift          # Custom theme gradients, shadow, and vector logomark
-│       ├── SplashScreenView.swift  # Animated launch screen
-│       └── EmptyStateView.swift    # Reusable state view for empty/error screens
-└── PhotoGallery.xcodeproj          # Xcode Project file (configured with synchronized groups)
+│       ├── AppTheme.swift                # Gradients, cards, shadows, and vector app logo
+│       ├── SplashScreenView.swift        # Animated splash screen view
+│       ├── EmptyStateView.swift          # Custom empty and error state display
+│       └── RemotePhotoListView.swift     # Paginated list showing online photos
+└── PhotoGalleryTests/
+    └── PhotoAPIServiceTests.swift        # Unit tests covering networking and error flows
 ```
+
+---
+
+## 🧪 Unit Testing
+
+The networking layer is fully tested to ensure stability and reliability under various API responses:
+
+*   **Mock Networking Protocol (`MockURLProtocol` inside `PhotoAPIServiceTests.swift`)**: Intercepts outgoing requests using native Foundation `URLProtocol` configuration to mock server states without making real HTTP requests.
+*   **Verification Coverage**:
+    *   `testFetchPhotosDecodesSuccessfulResponse`: Verifies correct URL query construction and successful JSON parsing.
+    *   `testFetchPhotosThrowsServerErrorForNonSuccessfulStatus`: Ensures 5xx status codes are handled.
+    *   `testFetchPhotosThrowsEmptyResponseForEmptySuccessfulBody`: Validates behavior when the API responds with empty data.
 
 ---
 
@@ -72,14 +106,13 @@ PhotoGallery/
 3. Select your target simulator (e.g., iPhone 15 or newer).
 4. Run the project using `Command + R` (⌘R).
 
-No API keys, custom credentials, or complex setup tasks are required. The project references dependencies (like Kingfisher and IQKeyboardManager) via Swift Package Manager (SPM), which Xcode resolves automatically on launch.
+### Running the Tests
+*   Press `Command + U` (⌘U) in Xcode to execute the unit test suite.
 
 ---
 
 ## 🚀 Roadmap / Next Steps
 
-1. **Core Data Entity**: Set up the `.xcdatamodeld` file defining the `Photo` entity (with attributes like `id`, `albumId`, `title`, `url`, and `thumbnailUrl`).
-2. **Networking API Service**: Add `PhotoAPIService` to perform paginated network requests to the JSONPlaceholder photos endpoint.
-3. **Repository Pattern**: Build a synchronization repository that checks the Core Data cache first, then fetches pages from the API when scrolling past cached records.
-4. **Photo List View**: Replace the empty state in `ContentView` with a paginated, infinite-scrolling list of photos.
-5. **Detail & Editing Screen**: Implement a detail view allowing full-size image viewing, editing the photo's title locally, and deleting a record.
+1. **Core Data Entity**: Define a local database schema mapping the fetched photo attributes.
+2. **Local Sync Repository**: Build a synchronization repository that manages both offline Core Data storage and online REST API calls (displaying cached local data first, then fetching the next page only when scrolling past local limits).
+3. **Local Actions (Edit & Delete)**: Allow users to edit photo titles locally and delete photos, reflecting these updates immediately in the scrolling feed.
