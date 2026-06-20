@@ -5,14 +5,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            NavigationStack {
-                EmptyStateView(
-                    title: AppConstants.UI.emptyPhotosTitle,
-                    message: AppConstants.UI.emptyPhotosMessage
-                )
-                .navigationTitle(AppConstants.UI.photosTitle)
-            }
-            .opacity(showSplash ? 0 : 1)
+            RemotePhotoListView(onInitialLoadFinished: dismissSplash)
+                .opacity(showSplash ? 0 : 1)
 
             if showSplash {
                 SplashScreenView()
@@ -21,9 +15,14 @@ struct ContentView: View {
         }
         .task {
             try? await Task.sleep(nanoseconds: AppConstants.Animation.splashMinimumDurationNanoseconds)
-            withAnimation(.easeInOut(duration: AppConstants.Animation.splashDismissDuration)) {
-                showSplash = false
-            }
+            dismissSplash()
+        }
+    }
+
+    private func dismissSplash() {
+        guard showSplash else { return }
+        withAnimation(.easeInOut(duration: AppConstants.Animation.splashDismissDuration)) {
+            showSplash = false
         }
     }
 }
