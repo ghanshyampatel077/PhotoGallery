@@ -1,4 +1,5 @@
-internal import CoreData
+import CoreData
+import IQKeyboardManagerSwift
 import SwiftUI
 
 @main
@@ -13,6 +14,12 @@ struct PhotoGalleryApp: App {
         let persistenceController = PersistenceController.shared
         self.persistenceController = persistenceController
         self.photoRepository = PhotoRepository(persistence: persistenceController)
+
+        IQKeyboardManager.shared.enable = true
+        IQKeyboardManager.shared.shouldResignOnTouchOutside = true
+        IQKeyboardManager.shared.enableAutoToolbar = true
+        IQKeyboardManager.shared.toolbarDoneBarButtonItemText = AppConstants.UI.done
+        IQKeyboardManager.shared.toolbarDoneBarButtonItemAccessibilityLabel = AppConstants.UI.done
     }
 
     // MARK: Scene

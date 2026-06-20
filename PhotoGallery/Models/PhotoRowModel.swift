@@ -1,4 +1,4 @@
-internal import CoreData
+import CoreData
 import Foundation
 
 struct PhotoRowModel: Identifiable, Equatable, Hashable {

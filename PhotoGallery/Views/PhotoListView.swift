@@ -1,18 +1,19 @@
+import CoreData
 import SwiftUI
-internal import CoreData
 
 struct PhotoListView: View {
     
     // MARK: Dependencies
     private let repository: PhotoRepositoryProtocol
     private let onInitialLoadFinished: (() -> Void)?
-    @StateObject private var viewModel: PhotoListViewModel
+    @State private var viewModel: PhotoListViewModel
+    @State private var selectedPhotoRoute: PhotoRoute?
 
     // MARK: Initialization
     init(repository: PhotoRepositoryProtocol, onInitialLoadFinished: (() -> Void)? = nil) {
         self.repository = repository
         self.onInitialLoadFinished = onInitialLoadFinished
-        _viewModel = StateObject(wrappedValue: PhotoListViewModel(repository: repository))
+        _viewModel = State(initialValue: PhotoListViewModel(repository: repository))
     }
 
     // MARK: Body
@@ -56,6 +57,18 @@ struct PhotoListView: View {
             .onAppear {
                 viewModel.removeInvalidPhotos()
             }
+            .navigationDestination(item: $selectedPhotoRoute) { route in
+                PhotoDestinationView(
+                    route: route,
+                    repository: repository,
+                    onPhotoUpdated: { [weak viewModel] photoID, title in
+                        viewModel?.updatePhotoTitle(photoID: photoID, title: title)
+                    },
+                    onPhotoDeleted: { [weak viewModel] photoID in
+                        viewModel?.removePhoto(photoID: photoID)
+                    }
+                )
+            }
         }
     }
 
@@ -63,14 +76,17 @@ struct PhotoListView: View {
     private var photoList: some View {
             List {
                 ForEach(viewModel.photos) { photo in
-                    PhotoRowView(photo: photo)
+                    Button {
+                        selectedPhotoRoute = PhotoRoute(photo: photo)
+                    } label: {
+                        PhotoRowView(photo: photo)
+                    }
+                .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-                .onAppear {
-                    Task {
-                        await viewModel.loadNextPageIfNeeded(currentPhoto: photo)
-                    }
+                .task {
+                    await viewModel.loadNextPageIfNeeded(currentPhoto: photo)
                 }
             }
             .onDelete { indexSet in
@@ -138,6 +154,48 @@ struct PhotoListView: View {
                 }
             }
         )
+    }
+}
+
+// MARK: - Navigation
+
+private struct PhotoRoute: Identifiable, Hashable {
+    let objectID: NSManagedObjectID
+    let photo: PhotoRowModel
+
+    var id: NSManagedObjectID {
+        objectID
+    }
+
+    init(photo: PhotoRowModel) {
+        self.objectID = photo.objectID
+        self.photo = photo
+    }
+}
+
+private struct PhotoDestinationView: View {
+    let route: PhotoRoute
+    let repository: PhotoRepositoryProtocol
+    let onPhotoUpdated: (Int64, String) -> Void
+    let onPhotoDeleted: (Int64) -> Void
+
+    var body: some View {
+        if let photo = try? repository.fetchPhoto(objectID: route.objectID) {
+            PhotoDetailView(
+                photo: photo,
+                repository: repository,
+                initialTitle: route.photo.title,
+                initialThumbnailURLString: route.photo.thumbnailURLString,
+                onPhotoUpdated: onPhotoUpdated,
+                onPhotoDeleted: onPhotoDeleted
+            )
+        } else {
+            EmptyStateView(
+                title: AppConstants.UI.emptyPhotosTitle,
+                message: AppConstants.Errors.photoNotFound,
+                retryAction: nil
+            )
+        }
     }
 }
 

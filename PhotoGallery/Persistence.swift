@@ -1,4 +1,4 @@
-internal import CoreData
+import CoreData
 
 // MARK: - Core Data Errors
 enum CoreDataError: LocalizedError {
