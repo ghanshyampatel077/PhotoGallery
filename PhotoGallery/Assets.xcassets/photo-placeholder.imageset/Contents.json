@@ -1,0 +1,19 @@
+{
+  "images" : [
+    {
+      "idiom" : "universal",
+      "symbol" : {
+        "configuration" : "hierarchical",
+        "pointSize" : 100
+      },
+      "symbol-name" : "photo"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "properties" : {
+    "preserves-vector-representation" : true
+  }
+}
